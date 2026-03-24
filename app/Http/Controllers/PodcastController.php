@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Agents\PodcastScriptAgent;
+use App\Models\Podcast;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +13,6 @@ use Laravel\Ai\Enums\Lab;
 
 class PodcastController extends Controller
 {
-    // Fallback voice IDs if user doesn't pick
     private const DEFAULT_VOICES = [
         'Alex'  => 'JBFqnCBsd6RMkjVDRZzb', // George
         'Sarah' => 'EXAVITQu4vr4xnSDxMaL', // Sarah
@@ -21,6 +21,23 @@ class PodcastController extends Controller
     public function index()
     {
         return view('podcast');
+    }
+
+    public function history()
+    {
+        $podcasts = Podcast::latest()->get()->map(fn($p) => [
+            'id'                  => $p->id,
+            'title'               => $p->title,
+            'product_url'         => $p->product_url,
+            'conversation_length' => $p->conversation_length,
+            'voice_alex_name'     => $p->voice_alex_name,
+            'voice_sarah_name'    => $p->voice_sarah_name,
+            'dialogue_count'      => count($p->dialogue),
+            'audio_url'           => $p->audio_url,
+            'created_at'          => $p->created_at->format('M j, Y · g:i A'),
+        ]);
+
+        return response()->json($podcasts);
     }
 
     public function voices()
@@ -52,21 +69,14 @@ class PodcastController extends Controller
         }
     }
 
-    public function generate(Request $request)
+    // Step 1 — generate transcript only
+    public function generateScript(Request $request)
     {
         $request->validate([
             'url'                 => 'required|url|max:2048',
-            'voice_alex'          => 'nullable|string|max:100',
-            'voice_sarah'         => 'nullable|string|max:100',
             'conversation_length' => 'nullable|integer|min:6|max:22',
         ]);
 
-        $voices = [
-            'Alex'  => $request->input('voice_alex',  self::DEFAULT_VOICES['Alex']),
-            'Sarah' => $request->input('voice_sarah', self::DEFAULT_VOICES['Sarah']),
-        ];
-
-        // 1. Fetch and extract product page text
         $html = $this->fetchPage($request->url);
         $text = $this->extractText($html);
 
@@ -76,14 +86,13 @@ class PodcastController extends Controller
             ], 422);
         }
 
-        // 2. Generate podcast script via Laravel AI SDK
         $length     = $request->integer('conversation_length', 12);
-        $scriptData = $this->generateScript($text, $request->url, $length);
+        $scriptData = $this->buildScript($text, $request->url, $length);
 
         if ($scriptData === 'rate_limited') {
             $provider = ucfirst(env('PODCAST_AI_PROVIDER', 'groq'));
             return response()->json([
-                'error' => "{$provider} rate limit reached. Wait a minute and try again, or check your API quota.",
+                'error' => "{$provider} rate limit reached. Wait a minute and try again.",
             ], 429);
         }
 
@@ -93,13 +102,58 @@ class PodcastController extends Controller
             ], 500);
         }
 
-        // 3. Generate audio via ElevenLabs Text-to-Dialogue
-        $audioUrl = $this->generateAudio($scriptData['dialogue'], $voices);
+        return response()->json([
+            'title'    => $scriptData['title'] ?? 'Product Spotlight',
+            'dialogue' => $scriptData['dialogue'],
+        ]);
+    }
+
+    // Step 2 — generate audio from (possibly edited) dialogue
+    public function generateAudio(Request $request)
+    {
+        $request->validate([
+            'title'               => 'nullable|string|max:255',
+            'product_url'         => 'nullable|url|max:2048',
+            'conversation_length' => 'nullable|integer|min:6|max:22',
+            'dialogue'            => 'required|array|min:1',
+            'dialogue.*.speaker'  => 'required|in:Alex,Sarah',
+            'dialogue.*.text'     => 'required|string|max:1000',
+            'voice_alex'          => 'nullable|string|max:100',
+            'voice_sarah'         => 'nullable|string|max:100',
+        ]);
+
+        $voiceAlexId  = $request->input('voice_alex',  self::DEFAULT_VOICES['Alex']);
+        $voiceSarahId = $request->input('voice_sarah', self::DEFAULT_VOICES['Sarah']);
+
+        $voices = ['Alex' => $voiceAlexId, 'Sarah' => $voiceSarahId];
+
+        [$audioPath, $audioUrl] = $this->buildAudio($request->input('dialogue'), $voices);
+
+        if (! $audioUrl) {
+            return response()->json([
+                'error' => 'Audio generation failed. Check your ElevenLabs account.',
+            ], 500);
+        }
+
+        // Resolve voice names from ElevenLabs voices list (best-effort)
+        $voiceNames   = $this->fetchVoiceNames([$voiceAlexId, $voiceSarahId]);
+
+        $podcast = Podcast::create([
+            'title'               => $request->input('title', 'Product Spotlight'),
+            'product_url'         => $request->input('product_url', ''),
+            'conversation_length' => $request->integer('conversation_length', 12),
+            'voice_alex_id'       => $voiceAlexId,
+            'voice_alex_name'     => $voiceNames[$voiceAlexId] ?? $voiceAlexId,
+            'voice_sarah_id'      => $voiceSarahId,
+            'voice_sarah_name'    => $voiceNames[$voiceSarahId] ?? $voiceSarahId,
+            'dialogue'            => $request->input('dialogue'),
+            'audio_path'          => $audioPath,
+            'audio_url'           => $audioUrl,
+        ]);
 
         return response()->json([
-            'title'     => $scriptData['title'] ?? 'Product Spotlight',
-            'dialogue'  => $scriptData['dialogue'],
-            'audio_url' => $audioUrl,
+            'audio_url'  => $audioUrl,
+            'podcast_id' => $podcast->id,
         ]);
     }
 
@@ -120,9 +174,7 @@ class PodcastController extends Controller
 
     private function extractText(string $html): string
     {
-        if (empty($html)) {
-            return '';
-        }
+        if (empty($html)) return '';
 
         $html = preg_replace('/<(script|style|nav|footer|header|aside|iframe)[^>]*>.*?<\/\1>/si', '', $html);
         $html = preg_replace('/<\/(p|div|li|h[1-6]|br|tr)>/i', ' ', $html);
@@ -130,12 +182,11 @@ class PodcastController extends Controller
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
         $text = preg_replace('/[ \t]+/', ' ', $text);
         $text = preg_replace('/\n{3,}/', "\n\n", $text);
-        $text = trim($text);
 
-        return mb_substr($text, 0, 3500);
+        return mb_substr(trim($text), 0, 3500);
     }
 
-    private function generateScript(string $pageContent, string $url, int $length = 18): array|string|null
+    private function buildScript(string $pageContent, string $url, int $length = 12): array|string|null
     {
         $agent = new PodcastScriptAgent();
 
@@ -150,40 +201,31 @@ class PodcastController extends Controller
         PROMPT;
 
         [$provider, $model] = $this->resolveProvider();
-        $attempts = 3;
 
-        for ($i = 0; $i < $attempts; $i++) {
+        for ($i = 0; $i < 3; $i++) {
             try {
-                if ($i > 0) {
-                    sleep(5 * $i);
-                }
+                if ($i > 0) sleep(5 * $i);
 
                 $response = $agent->prompt($prompt, provider: $provider, model: $model);
                 $raw      = trim((string) $response);
-
-                $raw = preg_replace('/^```(?:json)?\s*/i', '', $raw);
-                $raw = preg_replace('/\s*```$/', '', $raw);
-
-                $data = json_decode($raw, true);
+                $raw      = preg_replace('/^```(?:json)?\s*/i', '', $raw);
+                $raw      = preg_replace('/\s*```$/', '', $raw);
+                $data     = json_decode($raw, true);
 
                 if (json_last_error() !== JSON_ERROR_NONE || ! isset($data['dialogue'])) {
                     Log::error('PodcastController: JSON parse failed', ['raw' => substr($raw, 0, 500)]);
                     continue;
                 }
 
-                $data['dialogue'] = array_values(array_filter($data['dialogue'], function ($turn) {
-                    return isset($turn['speaker'], $turn['text'])
-                        && in_array($turn['speaker'], ['Alex', 'Sarah'])
-                        && strlen(trim($turn['text'])) > 0;
-                }));
+                $data['dialogue'] = array_values(array_filter($data['dialogue'], fn($t) =>
+                    isset($t['speaker'], $t['text'])
+                    && in_array($t['speaker'], ['Alex', 'Sarah'])
+                    && strlen(trim($t['text'])) > 0
+                ));
 
                 return $data;
             } catch (\Exception $e) {
-                Log::error('PodcastController: generateScript error', [
-                    'attempt' => $i + 1,
-                    'error'   => $e->getMessage(),
-                ]);
-
+                Log::error('PodcastController: buildScript error', ['attempt' => $i + 1, 'error' => $e->getMessage()]);
                 if (str_contains($e->getMessage(), 'rate limit') || str_contains($e->getMessage(), 'rate limited')) {
                     return 'rate_limited';
                 }
@@ -202,7 +244,7 @@ class PodcastController extends Controller
         };
     }
 
-    private function generateAudio(array $dialogue, array $voices): ?string
+    private function buildAudio(array $dialogue, array $voices): array
     {
         try {
             $inputs = array_map(fn($turn) => [
@@ -224,16 +266,34 @@ class PodcastController extends Controller
                     'status' => $response->status(),
                     'body'   => substr($response->body(), 0, 500),
                 ]);
-                return null;
+                return [null, null];
             }
 
             $filename = 'podcasts/' . Str::uuid() . '.mp3';
             Storage::disk('public')->put($filename, $response->body());
 
-            return Storage::disk('public')->url($filename);
+            return [$filename, Storage::disk('public')->url($filename)];
         } catch (\Exception $e) {
-            Log::error('PodcastController: generateAudio error', ['error' => $e->getMessage()]);
-            return null;
+            Log::error('PodcastController: buildAudio error', ['error' => $e->getMessage()]);
+            return [null, null];
+        }
+    }
+
+    private function fetchVoiceNames(array $voiceIds): array
+    {
+        try {
+            $response = Http::withHeaders(['xi-api-key' => env('ELEVENLABS_API_KEY')])
+                ->timeout(10)
+                ->get('https://api.elevenlabs.io/v1/voices');
+
+            if (! $response->successful()) return [];
+
+            return collect($response->json('voices', []))
+                ->whereIn('voice_id', $voiceIds)
+                ->pluck('name', 'voice_id')
+                ->all();
+        } catch (\Exception $e) {
+            return [];
         }
     }
 }
