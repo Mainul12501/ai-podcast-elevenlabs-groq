@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Agents\ImageAnalysisAgent;
 use App\Agents\PodcastScriptAgent;
 use App\Models\Podcast;
 use Illuminate\Http\Request;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Ai\Enums\Lab;
+use Laravel\Ai\Files\Image;
 
 class PodcastController extends Controller
 {
@@ -74,7 +76,10 @@ class PodcastController extends Controller
     {
         $request->validate([
             'url'                 => 'required|url|max:2048',
-            'conversation_length' => 'nullable|integer|min:6|max:22',
+            'conversation_length' => 'nullable|integer|min:4|max:22',
+            'extra_instructions'  => 'nullable|string|max:1000',
+            'images.*'            => 'nullable|image|max:8192',
+            'image_urls'          => 'nullable|string|max:5000',
         ]);
 
         $html = $this->fetchPage($request->url);
@@ -86,8 +91,10 @@ class PodcastController extends Controller
             ], 422);
         }
 
-        $length     = $request->integer('conversation_length', 12);
-        $scriptData = $this->buildScript($text, $request->url, $length);
+        $length           = $request->integer('conversation_length', 12);
+        $extra            = trim($request->input('extra_instructions', ''));
+        $imageDescriptions = $this->analyzeImages($request);
+        $scriptData       = $this->buildScript($text, $request->url, $length, $extra, $imageDescriptions);
 
         if ($scriptData === 'rate_limited') {
             $provider = ucfirst(env('PODCAST_AI_PROVIDER', 'groq'));
@@ -114,7 +121,7 @@ class PodcastController extends Controller
         $request->validate([
             'title'               => 'nullable|string|max:255',
             'product_url'         => 'nullable|url|max:2048',
-            'conversation_length' => 'nullable|integer|min:6|max:22',
+            'conversation_length' => 'nullable|integer|min:4|max:22',
             'dialogue'            => 'required|array|min:1',
             'dialogue.*.speaker'  => 'required|in:Alex,Sarah',
             'dialogue.*.text'     => 'required|string|max:1000',
@@ -186,14 +193,22 @@ class PodcastController extends Controller
         return mb_substr(trim($text), 0, 3500);
     }
 
-    private function buildScript(string $pageContent, string $url, int $length = 12): array|string|null
+    private function buildScript(string $pageContent, string $url, int $length = 12, string $extra = '', string $imageDescriptions = ''): array|string|null
     {
         $agent = new PodcastScriptAgent();
+
+        $extraBlock = $extra
+            ? "\n        ADDITIONAL INSTRUCTIONS (follow these carefully):\n        {$extra}\n"
+            : '';
+
+        $imageBlock = $imageDescriptions
+            ? "\n        PRODUCT IMAGE ANALYSIS (use these visual details to enrich the script):\n        {$imageDescriptions}\n"
+            : '';
 
         $prompt = <<<PROMPT
         Generate an engaging podcast script about the product from this page.
         The dialogue array must have EXACTLY {$length} exchanges — no more, no less.
-
+        {$extraBlock}{$imageBlock}
         Product URL: {$url}
 
         Page content:
@@ -233,6 +248,44 @@ class PodcastController extends Controller
         }
 
         return null;
+    }
+
+    private function analyzeImages(Request $request): string
+    {
+        $attachments = [];
+
+        if ($request->hasFile('images')) {
+            foreach ($request->file('images') as $file) {
+                $attachments[] = Image::fromUpload($file);
+            }
+        }
+
+        $rawUrls = trim($request->input('image_urls', ''));
+        if ($rawUrls) {
+            foreach (explode("\n", $rawUrls) as $line) {
+                $url = trim($line);
+                if ($url && filter_var($url, FILTER_VALIDATE_URL)) {
+                    $attachments[] = Image::fromUrl($url);
+                }
+            }
+        }
+
+        if (empty($attachments)) return '';
+
+        try {
+            $agent = new ImageAnalysisAgent();
+            $count = count($attachments);
+            $response = $agent->prompt(
+                "Analyze these {$count} product image(s) and describe each one in detail.",
+                $attachments,
+                provider: Lab::Gemini,
+                model: 'gemini-2.0-flash'
+            );
+            return trim((string) $response);
+        } catch (\Exception $e) {
+            Log::error('PodcastController: image analysis error', ['error' => $e->getMessage()]);
+            return '';
+        }
     }
 
     private function resolveProvider(): array

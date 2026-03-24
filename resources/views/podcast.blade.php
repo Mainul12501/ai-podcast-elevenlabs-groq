@@ -181,8 +181,114 @@
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                                 </svg>
                             </template>
-                            <span x-text="scriptLoading ? 'Generating…' : 'Generate Transcript'"></span>
+                            <span x-text="scriptLoading
+                                ? (images.length || imageUrls.length ? 'Analyzing images…' : 'Generating…')
+                                : 'Generate Transcript'"></span>
                         </button>
+                    </div>
+
+                    {{-- Additional instructions --}}
+                    <div class="mb-5">
+                        <label class="text-sm font-medium text-gray-300 flex items-center gap-2 mb-2">
+                            <svg class="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                            </svg>
+                            Additional Instructions
+                            <span class="text-gray-600 font-normal text-xs">(optional)</span>
+                        </label>
+                        <textarea
+                            x-model="extraInstructions"
+                            :disabled="scriptLoading"
+                            rows="3"
+                            placeholder="e.g. Focus on the battery life and camera quality. Make Alex more skeptical. End with a comparison to competitors. Keep it fun and casual…"
+                            class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition resize-none disabled:opacity-50 leading-relaxed"
+                        ></textarea>
+                        <p class="text-xs text-gray-600 mt-1.5">Tell the AI what to emphasise, how to frame the conversation, tone adjustments, or anything else.</p>
+                    </div>
+
+                    {{-- Image attachments --}}
+                    <div class="mb-5">
+                        <label class="text-sm font-medium text-gray-300 flex items-center gap-2 mb-2">
+                            <svg class="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                            Product Images
+                            <span class="text-gray-600 font-normal text-xs">(optional — AI will analyze for richer scripts)</span>
+                        </label>
+
+                        {{-- Drop zone --}}
+                        <div
+                            class="relative border-2 border-dashed rounded-xl transition-all"
+                            :class="isDragging
+                                ? 'border-violet-500/70 bg-violet-600/10'
+                                : 'border-white/10 bg-white/3 hover:border-white/20 hover:bg-white/5'"
+                            @dragover.prevent="isDragging = true"
+                            @dragleave.prevent="isDragging = false"
+                            @drop.prevent="isDragging = false; addDroppedItems($event)"
+                            @click="$refs.imageFileInput.click()">
+                            <input type="file" x-ref="imageFileInput" multiple accept="image/*" class="hidden"
+                                @change="addFileInputImages($event)">
+                            <div class="flex flex-col items-center justify-center py-6 px-4 pointer-events-none"
+                                 x-show="images.length === 0 && imageUrls.length === 0">
+                                <svg class="w-8 h-8 text-gray-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                </svg>
+                                <p class="text-sm text-gray-500">Drop images here or <span class="text-violet-400 underline cursor-pointer">browse</span></p>
+                                <p class="text-xs text-gray-600 mt-1">JPG, PNG, WebP · max 8 MB each</p>
+                            </div>
+
+                            {{-- Thumbnails --}}
+                            <div x-show="images.length > 0 || imageUrls.length > 0"
+                                 class="p-3 flex flex-wrap gap-2 pointer-events-none">
+                                <template x-for="(img, i) in images" :key="'f-' + i">
+                                    <div class="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 bg-black/20 group pointer-events-auto flex-shrink-0">
+                                        <img :src="img.preview" class="w-full h-full object-cover">
+                                        <button @click.stop="removeImage(i)"
+                                            class="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                            </svg>
+                                        </button>
+                                        <div class="absolute bottom-0 inset-x-0 bg-black/60 text-xs text-center text-gray-300 truncate px-1 py-0.5" x-text="img.name"></div>
+                                    </div>
+                                </template>
+                                <template x-for="(u, i) in imageUrls" :key="'u-' + i">
+                                    <div class="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 bg-black/20 group pointer-events-auto flex-shrink-0">
+                                        <img :src="u" class="w-full h-full object-cover" @@error="$el.style.display='none'">
+                                        <button @click.stop="removeImageUrl(i)"
+                                            class="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                            </svg>
+                                        </button>
+                                        <div class="absolute bottom-0 inset-x-0 bg-black/60 text-xs text-center text-gray-300 truncate px-1 py-0.5">URL</div>
+                                    </div>
+                                </template>
+                                {{-- Add more --}}
+                                <div class="w-16 h-16 rounded-lg border-2 border-dashed border-white/10 hover:border-white/20 flex items-center justify-center pointer-events-auto cursor-pointer transition"
+                                     @click.stop="$refs.imageFileInput.click()">
+                                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        {{-- URL input --}}
+                        <div class="flex gap-2 mt-2" @click.stop>
+                            <input type="url" x-model="imageUrlInput" placeholder="Or paste an image URL…"
+                                class="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 transition"
+                                @keydown.enter.prevent="addImageUrl()">
+                            <button type="button" @click="addImageUrl()"
+                                :disabled="!imageUrlInput.trim()"
+                                class="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg bg-violet-600/15 border border-violet-500/30 text-violet-300 hover:bg-violet-600/25 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                </svg>
+                                Add
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-600 mt-1.5">Images are analyzed by Gemini Vision and used to add visual context to the script.</p>
                     </div>
 
                     {{-- Length slider --}}
@@ -199,11 +305,11 @@
                                 <span class="text-xs text-gray-500" x-text="lengthLabel"></span>
                             </div>
                         </div>
-                        <input type="range" min="6" max="22" step="2"
+                        <input type="range" min="4" max="22" step="2"
                             x-model.number="conversationLength"
                             :disabled="scriptLoading"
                             class="w-full h-2 rounded-full appearance-none cursor-pointer accent-violet-500 disabled:opacity-50"
-                            :style="`background: linear-gradient(to right, #7c3aed 0%, #7c3aed ${((conversationLength - 6) / 16) * 100}%, rgba(255,255,255,0.1) ${((conversationLength - 6) / 16) * 100}%, rgba(255,255,255,0.1) 100%)`">
+                            :style="`background: linear-gradient(to right, #7c3aed 0%, #7c3aed ${((conversationLength - 4) / 18) * 100}%, rgba(255,255,255,0.1) ${((conversationLength - 4) / 18) * 100}%, rgba(255,255,255,0.1) 100%)`">
                         <div class="flex justify-between text-xs text-gray-600 mt-1.5 px-0.5">
                             <span>Short</span><span>Medium</span><span>Long</span>
                         </div>
@@ -520,9 +626,45 @@
                     </div>
                 </div>
 
-                <div class="p-6 bg-black/20">
-                    <div id="waveform" class="w-full mb-5 rounded-lg overflow-hidden min-h-16"></div>
-                    <div class="flex items-center gap-4">
+                <div class="p-6 bg-black/20 space-y-4">
+
+                    {{-- Waveform (click to seek) --}}
+                    <div>
+                        <div id="waveform" class="w-full rounded-lg overflow-hidden min-h-16 cursor-pointer"></div>
+                        <p x-show="wsReady" class="text-center text-xs text-gray-600 mt-1">Click anywhere on the waveform to seek</p>
+                    </div>
+
+                    {{-- Scrub slider --}}
+                    <div x-show="wsReady" class="space-y-1">
+                        <input type="range" min="0" :max="duration || 100" step="0.1"
+                            :value="currentTime"
+                            @input="scrubTo($event.target.value)"
+                            @mousedown="scrubbing = true"
+                            @mouseup="scrubbing = false"
+                            @touchstart="scrubbing = true"
+                            @touchend="scrubbing = false"
+                            class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-violet-500"
+                            :style="`background: linear-gradient(to right, #7c3aed 0%, #7c3aed ${duration ? (currentTime/duration)*100 : 0}%, rgba(255,255,255,0.1) ${duration ? (currentTime/duration)*100 : 0}%, rgba(255,255,255,0.1) 100%)`">
+                        <div class="flex justify-between text-xs font-mono text-gray-500">
+                            <span x-text="formatTime(currentTime)">0:00</span>
+                            <span x-text="formatTime(duration)">0:00</span>
+                        </div>
+                    </div>
+
+                    {{-- Controls row --}}
+                    <div class="flex items-center gap-3">
+
+                        {{-- Skip back 10s --}}
+                        <button @click="skip(-10)" :disabled="!wsReady"
+                            class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-30 flex items-center justify-center transition flex-shrink-0"
+                            title="Back 10s">
+                            <svg class="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+                                <text x="7.5" y="14.5" font-size="5" fill="currentColor" font-family="sans-serif" font-weight="bold">10</text>
+                            </svg>
+                        </button>
+
+                        {{-- Play / Pause --}}
                         <button @click="togglePlay" :disabled="!wsReady"
                             class="w-12 h-12 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full flex items-center justify-center shadow-lg shadow-violet-600/30 transition-all flex-shrink-0">
                             <template x-if="wsLoading">
@@ -538,11 +680,31 @@
                                 <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
                             </template>
                         </button>
-                        <div class="flex items-center gap-1.5 text-sm font-mono text-gray-300 flex-shrink-0">
-                            <span x-text="formatTime(currentTime)">0:00</span>
-                            <span class="text-gray-600">/</span>
-                            <span x-text="formatTime(duration)" class="text-gray-500">0:00</span>
+
+                        {{-- Skip forward 10s --}}
+                        <button @click="skip(10)" :disabled="!wsReady"
+                            class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-30 flex items-center justify-center transition flex-shrink-0"
+                            title="Forward 10s">
+                            <svg class="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/>
+                                <text x="7.5" y="14.5" font-size="5" fill="currentColor" font-family="sans-serif" font-weight="bold">10</text>
+                            </svg>
+                        </button>
+
+                        {{-- Playback speed --}}
+                        <div class="flex items-center gap-1 ml-1">
+                            <template x-for="spd in [0.75, 1, 1.25, 1.5]" :key="spd">
+                                <button @click="setSpeed(spd)" :disabled="!wsReady"
+                                    class="text-xs px-2 py-1 rounded-md border transition disabled:opacity-30"
+                                    :class="playbackSpeed === spd
+                                        ? 'bg-violet-600/30 border-violet-500/50 text-violet-300'
+                                        : 'bg-white/5 border-white/10 text-gray-500 hover:text-gray-200 hover:bg-white/10'"
+                                    x-text="spd + 'x'">
+                                </button>
+                            </template>
                         </div>
+
+                        {{-- Volume --}}
                         <div class="flex items-center gap-2 ml-auto">
                             <svg class="w-4 h-4 text-gray-500 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
@@ -551,6 +713,8 @@
                                 @input="setVolume($event.target.value)"
                                 class="w-20 accent-violet-500 cursor-pointer">
                         </div>
+
+                        {{-- Download --}}
                         <a :href="audioUrl" :download="(title ?? 'podcast') + '.mp3'"
                            class="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white text-xs font-medium px-4 py-2.5 rounded-xl transition flex-shrink-0">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -602,8 +766,15 @@
             // Step 1
             url: '',
             conversationLength: 12,
+            extraInstructions: '',
             scriptLoading: false,
             scriptError: null,
+
+            // Images
+            images: [],        // { file: File, name: string, preview: string }
+            imageUrls: [],     // strings
+            imageUrlInput: '',
+            isDragging: false,
 
             // Transcript
             transcript: null,
@@ -637,8 +808,11 @@
             playing: false,
             currentTime: 0,
             duration: 0,
+            scrubbing: false,
+            playbackSpeed: 1,
 
             get lengthLabel() {
+                if (this.conversationLength <= 4)  return '~1 min';
                 if (this.conversationLength <= 8)  return '~2 min';
                 if (this.conversationLength <= 12) return '~3 min';
                 if (this.conversationLength <= 16) return '~5 min';
@@ -682,17 +856,20 @@
                 if (this.previewAudio) { this.previewAudio.pause(); this.previewAudio = null; this.previewingId = null; }
 
                 try {
+                    const fd = new FormData();
+                    fd.append('url', this.url);
+                    fd.append('conversation_length', this.conversationLength);
+                    fd.append('extra_instructions', this.extraInstructions);
+                    this.images.forEach(img => fd.append('images[]', img.file));
+                    if (this.imageUrls.length) fd.append('image_urls', this.imageUrls.join('\n'));
+
                     const res = await fetch('/generate-script', {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json',
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
                             'Accept': 'application/json',
                         },
-                        body: JSON.stringify({
-                            url: this.url,
-                            conversation_length: this.conversationLength,
-                        }),
+                        body: fd,
                     });
                     const data = await res.json();
                     if (!res.ok) {
@@ -803,6 +980,46 @@
                 URL.revokeObjectURL(a.href);
             },
 
+            // ── Image helpers ──
+            addDroppedItems(event) {
+                const items = [...(event.dataTransfer.items || [])];
+                // Check for image URL drop (e.g. dragging an image from browser)
+                const urlItem = items.find(i => i.kind === 'string' && i.type === 'text/uri-list');
+                if (urlItem) {
+                    urlItem.getAsString(url => {
+                        url = url.trim();
+                        if (url && /^https?:\/\//i.test(url) && !this.imageUrls.includes(url)) {
+                            this.imageUrls.push(url);
+                        }
+                    });
+                }
+                // Also handle dropped files
+                const files = [...(event.dataTransfer.files || [])].filter(f => f.type.startsWith('image/'));
+                files.forEach(f => this.images.push({ file: f, name: f.name, preview: URL.createObjectURL(f) }));
+            },
+
+            addFileInputImages(event) {
+                [...event.target.files].forEach(f => {
+                    this.images.push({ file: f, name: f.name, preview: URL.createObjectURL(f) });
+                });
+                event.target.value = '';
+            },
+
+            addImageUrl() {
+                const url = this.imageUrlInput.trim();
+                if (url && !this.imageUrls.includes(url)) this.imageUrls.push(url);
+                this.imageUrlInput = '';
+            },
+
+            removeImage(index) {
+                URL.revokeObjectURL(this.images[index].preview);
+                this.images.splice(index, 1);
+            },
+
+            removeImageUrl(index) {
+                this.imageUrls.splice(index, 1);
+            },
+
             // ── Voice helpers ──
             voiceName(voiceId) {
                 const v = this.voices.find(v => v.voice_id === voiceId);
@@ -843,7 +1060,7 @@
                     url: audioUrl,
                 });
                 this.ws.on('ready', () => { this.wsLoading = false; this.wsReady = true; this.duration = this.ws.getDuration(); });
-                this.ws.on('timeupdate', t => { this.currentTime = t; });
+                this.ws.on('timeupdate', t => { if (!this.scrubbing) this.currentTime = t; });
                 this.ws.on('finish', () => { this.playing = false; });
                 this.ws.on('error', err => { console.error('WaveSurfer:', err); this.wsLoading = false; });
             },
@@ -852,6 +1069,23 @@
                 if (!this.ws || !this.wsReady) return;
                 this.ws.playPause();
                 this.playing = this.ws.isPlaying();
+            },
+
+            skip(seconds) {
+                if (!this.ws || !this.wsReady) return;
+                const next = Math.min(Math.max(this.currentTime + seconds, 0), this.duration);
+                this.ws.seekTo(next / this.duration);
+            },
+
+            scrubTo(value) {
+                if (!this.ws || !this.wsReady || !this.duration) return;
+                this.ws.seekTo(parseFloat(value) / this.duration);
+            },
+
+            setSpeed(speed) {
+                if (!this.ws) return;
+                this.playbackSpeed = speed;
+                this.ws.setPlaybackRate(speed);
             },
 
             setVolume(val) {
@@ -870,12 +1104,14 @@
             resetAll() {
                 if (this.ws) { this.ws.destroy(); this.ws = null; }
                 if (this.previewAudio) { this.previewAudio.pause(); this.previewAudio = null; }
+                this.images.forEach(img => URL.revokeObjectURL(img.preview));
                 Object.assign(this, {
-                    url: '', transcript: null, title: '', editingLines: {},
+                    url: '', extraInstructions: '', transcript: null, title: '', editingLines: {},
                     scriptError: null, scriptLoading: false,
+                    images: [], imageUrls: [], imageUrlInput: '', isDragging: false,
                     audioUrl: null, audioError: null, audioLoading: false, podcastId: null, saved: false,
-                    previewingId: null, playing: false,
-                    wsReady: false, wsLoading: false, currentTime: 0, duration: 0,
+                    playing: false, wsReady: false, wsLoading: false, currentTime: 0, duration: 0, scrubbing: false, playbackSpeed: 1,
+                    previewingId: null,
                 });
             },
         };
