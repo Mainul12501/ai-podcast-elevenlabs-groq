@@ -91,10 +91,10 @@ class PodcastController extends Controller
             ], 422);
         }
 
-        $length           = $request->integer('conversation_length', 12);
-        $extra            = trim($request->input('extra_instructions', ''));
-        $imageDescriptions = $this->analyzeImages($request);
-        $scriptData       = $this->buildScript($text, $request->url, $length, $extra, $imageDescriptions);
+        $length             = $request->integer('conversation_length', 12);
+        $extra              = trim($request->input('extra_instructions', ''));
+        [$imageDescriptions, $storedImageUrls] = $this->analyzeImages($request);
+        $scriptData         = $this->buildScript($text, $request->url, $length, $extra, $imageDescriptions);
 
         if ($scriptData === 'rate_limited') {
             $provider = ucfirst(env('PODCAST_AI_PROVIDER', 'groq'));
@@ -110,8 +110,9 @@ class PodcastController extends Controller
         }
 
         return response()->json([
-            'title'    => $scriptData['title'] ?? 'Product Spotlight',
-            'dialogue' => $scriptData['dialogue'],
+            'title'              => $scriptData['title'] ?? 'Product Spotlight',
+            'dialogue'           => $scriptData['dialogue'],
+            'stored_image_urls'  => $storedImageUrls,
         ]);
     }
 
@@ -121,6 +122,9 @@ class PodcastController extends Controller
         $request->validate([
             'title'               => 'nullable|string|max:255',
             'product_url'         => 'nullable|url|max:2048',
+            'extra_instructions'  => 'nullable|string|max:1000',
+            'image_urls'          => 'nullable|array',
+            'image_urls.*'        => 'nullable|url|max:2048',
             'conversation_length' => 'nullable|integer|min:4|max:22',
             'dialogue'            => 'required|array|min:1',
             'dialogue.*.speaker'  => 'required|in:Alex,Sarah',
@@ -148,6 +152,8 @@ class PodcastController extends Controller
         $podcast = Podcast::create([
             'title'               => $request->input('title', 'Product Spotlight'),
             'product_url'         => $request->input('product_url', ''),
+            'extra_instructions'  => $request->input('extra_instructions') ?: null,
+            'image_urls'          => $request->input('image_urls') ?: null,
             'conversation_length' => $request->integer('conversation_length', 12),
             'voice_alex_id'       => $voiceAlexId,
             'voice_alex_name'     => $voiceNames[$voiceAlexId] ?? $voiceAlexId,
@@ -250,13 +256,16 @@ class PodcastController extends Controller
         return null;
     }
 
-    private function analyzeImages(Request $request): string
+    private function analyzeImages(Request $request): array
     {
-        $attachments = [];
+        $attachments      = [];
+        $storedImageUrls  = [];
 
         if ($request->hasFile('images')) {
             foreach ($request->file('images') as $file) {
                 $attachments[] = Image::fromUpload($file);
+                $path = $file->store('podcast-images', 'public');
+                $storedImageUrls[] = Storage::disk('public')->url($path);
             }
         }
 
@@ -270,7 +279,7 @@ class PodcastController extends Controller
             }
         }
 
-        if (empty($attachments)) return '';
+        if (empty($attachments)) return ['', $storedImageUrls];
 
         try {
             $agent = new ImageAnalysisAgent();
@@ -281,10 +290,10 @@ class PodcastController extends Controller
                 provider: Lab::Gemini,
                 model: 'gemini-2.0-flash'
             );
-            return trim((string) $response);
+            return [trim((string) $response), $storedImageUrls];
         } catch (\Exception $e) {
             Log::error('PodcastController: image analysis error', ['error' => $e->getMessage()]);
-            return '';
+            return ['', $storedImageUrls];
         }
     }
 

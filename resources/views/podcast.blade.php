@@ -771,8 +771,9 @@
             scriptError: null,
 
             // Images
-            images: [],        // { file: File, name: string, preview: string }
-            imageUrls: [],     // strings
+            images: [],            // { file: File, name: string, preview: string, storedUrl: string|null }
+            imageUrls: [],         // URL strings typed by user
+            storedImageUrls: [],   // public URLs of uploaded files saved to storage
             imageUrlInput: '',
             isDragging: false,
 
@@ -875,8 +876,16 @@
                     if (!res.ok) {
                         this.scriptError = data.error || 'Failed to generate transcript.';
                     } else {
-                        this.title      = data.title;
-                        this.transcript = data.dialogue;
+                        this.title           = data.title;
+                        this.transcript      = data.dialogue;
+                        this.storedImageUrls = data.stored_image_urls || [];
+                        // Update uploaded image thumbnails to use stored public URLs
+                        if (this.storedImageUrls.length) {
+                            this.images = this.images.map((img, i) => ({
+                                ...img,
+                                storedUrl: this.storedImageUrls[i] ?? null,
+                            }));
+                        }
                     }
                 } catch (e) {
                     this.scriptError = 'Network error. Please try again.';
@@ -904,6 +913,10 @@
                         body: JSON.stringify({
                             title:               this.title,
                             product_url:         this.url,
+                            extra_instructions:  this.extraInstructions || null,
+                            image_urls:          [...this.storedImageUrls, ...this.imageUrls].length
+                                                    ? [...this.storedImageUrls, ...this.imageUrls]
+                                                    : null,
                             conversation_length: this.conversationLength,
                             dialogue:            this.transcript,
                             voice_alex:          this.selectedVoiceAlex,
@@ -1108,7 +1121,7 @@
                 Object.assign(this, {
                     url: '', extraInstructions: '', transcript: null, title: '', editingLines: {},
                     scriptError: null, scriptLoading: false,
-                    images: [], imageUrls: [], imageUrlInput: '', isDragging: false,
+                    images: [], imageUrls: [], storedImageUrls: [], imageUrlInput: '', isDragging: false,
                     audioUrl: null, audioError: null, audioLoading: false, podcastId: null, saved: false,
                     playing: false, wsReady: false, wsLoading: false, currentTime: 0, duration: 0, scrubbing: false, playbackSpeed: 1,
                     previewingId: null,

@@ -9,6 +9,8 @@ class Podcast extends Model
     protected $fillable = [
         'title',
         'product_url',
+        'extra_instructions',
+        'image_urls',
         'conversation_length',
         'voice_alex_id',
         'voice_alex_name',
@@ -20,6 +22,7 @@ class Podcast extends Model
     ];
 
     protected $casts = [
-        'dialogue' => 'array',
+        'dialogue'   => 'array',
+        'image_urls' => 'array',
     ];
 }
