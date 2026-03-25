@@ -265,7 +265,7 @@ class PodcastController extends Controller
             foreach ($request->file('images') as $file) {
                 $attachments[] = Image::fromUpload($file);
                 $path = $file->store('podcast-images', 'public');
-                $storedImageUrls[] = Storage::disk('public')->url($path);
+                $storedImageUrls[] = '/storage/' . $path;
             }
         }
 
@@ -319,7 +319,7 @@ class PodcastController extends Controller
                 'Content-Type' => 'application/json',
             ])->timeout(180)->post('https://api.elevenlabs.io/v1/text-to-dialogue', [
                 'inputs'        => $inputs,
-                'model_id'      => 'eleven_multilingual_v2',
+                'model_id'      => 'eleven_v3',
                 'language_code' => 'en',
             ]);
 
@@ -334,7 +334,7 @@ class PodcastController extends Controller
             $filename = 'podcasts/' . Str::uuid() . '.mp3';
             Storage::disk('public')->put($filename, $response->body());
 
-            return [$filename, Storage::disk('public')->url($filename)];
+            return [$filename, '/storage/' . $filename];
         } catch (\Exception $e) {
             Log::error('PodcastController: buildAudio error', ['error' => $e->getMessage()]);
             return [null, null];

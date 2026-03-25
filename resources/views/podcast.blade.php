@@ -98,37 +98,91 @@
                     No podcasts generated yet.
                 </div>
 
-                <div x-show="!historyLoading && history.length > 0" class="divide-y divide-white/5 max-h-80 overflow-y-auto">
+                <div x-show="!historyLoading && history.length > 0" class="divide-y divide-white/5 max-h-[32rem] overflow-y-auto">
                     <template x-for="item in history" :key="item.id">
-                        <div class="px-6 py-4 flex items-start gap-4 hover:bg-white/2 transition">
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2 mb-1">
-                                    <span class="font-medium text-white text-sm truncate" x-text="item.title"></span>
-                                    <span class="text-xs text-gray-600 flex-shrink-0" x-text="item.created_at"></span>
+                        <div class="px-6 py-4 transition hover:bg-white/[0.02]"
+                             x-data="historyPlayer(item)">
+
+                            {{-- Row: info + buttons --}}
+                            <div class="flex items-start gap-3">
+
+                                {{-- Play / Pause button --}}
+                                <button @click="toggle"
+                                    class="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition shadow"
+                                    :class="playing ? 'bg-violet-600 hover:bg-violet-500' : 'bg-white/10 hover:bg-white/20'">
+                                    <template x-if="loading">
+                                        <svg class="w-3.5 h-3.5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                                        </svg>
+                                    </template>
+                                    <template x-if="!loading && !playing">
+                                        <svg class="w-3.5 h-3.5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                    </template>
+                                    <template x-if="!loading && playing">
+                                        <svg class="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                                    </template>
+                                </button>
+
+                                {{-- Info --}}
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2 mb-0.5">
+                                        <span class="font-medium text-white text-sm truncate" x-text="item.title"></span>
+                                        <span class="text-xs text-gray-600 flex-shrink-0" x-text="item.created_at"></span>
+                                    </div>
+                                    <a :href="item.product_url" target="_blank"
+                                       class="text-xs text-violet-400 hover:text-violet-300 truncate block mb-1.5 max-w-xs"
+                                       x-text="item.product_url"></a>
+                                    <div class="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                                        <span class="flex items-center gap-1">
+                                            <div class="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600"></div>
+                                            <span x-text="item.voice_alex_name"></span>
+                                        </span>
+                                        <span class="flex items-center gap-1">
+                                            <div class="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-violet-500 to-purple-600"></div>
+                                            <span x-text="item.voice_sarah_name"></span>
+                                        </span>
+                                        <span x-text="item.dialogue_count + ' lines'"></span>
+                                    </div>
                                 </div>
-                                <a :href="item.product_url" target="_blank"
-                                   class="text-xs text-violet-400 hover:text-violet-300 truncate block mb-2 max-w-xs"
-                                   x-text="item.product_url"></a>
-                                <div class="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-                                    <span class="flex items-center gap-1">
-                                        <div class="w-2 h-2 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600"></div>
-                                        <span x-text="item.voice_alex_name"></span>
-                                    </span>
-                                    <span class="flex items-center gap-1">
-                                        <div class="w-2 h-2 rounded-full bg-gradient-to-br from-violet-500 to-purple-600"></div>
-                                        <span x-text="item.voice_sarah_name"></span>
-                                    </span>
-                                    <span x-text="item.conversation_length + ' exchanges'"></span>
-                                    <span x-text="item.dialogue_count + ' lines'"></span>
+
+                                {{-- Download --}}
+                                <a :href="item.audio_url" :download="item.title + '.mp3'"
+                                   class="flex-shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                    </svg>
+                                    MP3
+                                </a>
+                            </div>
+
+                            {{-- Inline player (shown once audio starts loading) --}}
+                            <div x-show="ready || loading" x-transition class="mt-3 space-y-1.5">
+                                <audio x-ref="hAudio" preload="none" class="hidden"></audio>
+
+                                {{-- Progress bar --}}
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-mono text-gray-500 w-10 text-right flex-shrink-0" x-text="fmt(currentTime)">0:00</span>
+                                    <div class="flex-1 relative h-1.5 rounded-full bg-white/10 cursor-pointer"
+                                         @click="seek($event)">
+                                        <div class="absolute inset-y-0 left-0 bg-violet-500 rounded-full"
+                                             :style="`width:${duration ? (currentTime/duration)*100 : 0}%`"></div>
+                                    </div>
+                                    <span class="text-xs font-mono text-gray-500 w-10 flex-shrink-0" x-text="fmt(duration)">0:00</span>
+                                </div>
+
+                                {{-- Speed buttons --}}
+                                <div class="flex items-center gap-1 justify-end">
+                                    <template x-for="spd in [1, 1.25, 1.5, 2]" :key="spd">
+                                        <button @click="setSpeed(spd)"
+                                            class="text-xs px-1.5 py-0.5 rounded border transition"
+                                            :class="speed === spd ? 'bg-violet-600/30 border-violet-500/40 text-violet-300' : 'bg-white/5 border-white/10 text-gray-600 hover:text-gray-300'"
+                                            x-text="spd + 'x'">
+                                        </button>
+                                    </template>
                                 </div>
                             </div>
-                            <a :href="item.audio_url" :download="item.title + '.mp3'"
-                               class="flex-shrink-0 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-violet-600/10 border border-violet-500/20 text-violet-300 hover:bg-violet-600/20 transition">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                                </svg>
-                                MP3
-                            </a>
+
                         </div>
                     </template>
                 </div>
@@ -626,76 +680,91 @@
                     </div>
                 </div>
 
-                <div class="p-6 bg-black/20 space-y-4">
+                <div class="p-6 bg-black/20 space-y-4"
+                     x-init="$watch('audioUrl', val => { if (val) initPlayer(); })">
 
-                    {{-- Waveform (click to seek) --}}
-                    <div>
-                        <div id="waveform" class="w-full rounded-lg overflow-hidden min-h-16 cursor-pointer"></div>
-                        <p x-show="wsReady" class="text-center text-xs text-gray-600 mt-1">Click anywhere on the waveform to seek</p>
+                    {{-- Hidden native audio element --}}
+                    <audio x-ref="audioEl" preload="metadata" class="hidden"></audio>
+
+                    {{-- Loading indicator --}}
+                    <div x-show="wsLoading" class="flex items-center justify-center gap-3 py-4 text-gray-400 text-sm">
+                        <svg class="w-5 h-5 animate-spin text-violet-400" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                        Loading audio…
                     </div>
 
-                    {{-- Scrub slider --}}
+                    {{-- Progress bar --}}
                     <div x-show="wsReady" class="space-y-1">
-                        <input type="range" min="0" :max="duration || 100" step="0.1"
-                            :value="currentTime"
-                            @input="scrubTo($event.target.value)"
-                            @mousedown="scrubbing = true"
-                            @mouseup="scrubbing = false"
-                            @touchstart="scrubbing = true"
-                            @touchend="scrubbing = false"
-                            class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-violet-500"
-                            :style="`background: linear-gradient(to right, #7c3aed 0%, #7c3aed ${duration ? (currentTime/duration)*100 : 0}%, rgba(255,255,255,0.1) ${duration ? (currentTime/duration)*100 : 0}%, rgba(255,255,255,0.1) 100%)`">
+                        <div class="relative w-full h-2 rounded-full bg-white/10 cursor-pointer overflow-hidden"
+                             @click="scrubClick($event)">
+                            <div class="absolute inset-y-0 left-0 bg-violet-600 rounded-full transition-all"
+                                 :style="`width: ${duration ? (currentTime/duration)*100 : 0}%`"></div>
+                            {{-- Animated bars overlay while playing --}}
+                            <div x-show="playing" class="absolute inset-0 flex items-center justify-center gap-px opacity-30">
+                                <template x-for="b in 40" :key="b">
+                                    <div class="w-0.5 bg-white rounded-full animate-pulse"
+                                         :style="`height: ${30 + Math.random()*70}%; animation-delay: ${b*0.05}s`"></div>
+                                </template>
+                            </div>
+                        </div>
                         <div class="flex justify-between text-xs font-mono text-gray-500">
                             <span x-text="formatTime(currentTime)">0:00</span>
                             <span x-text="formatTime(duration)">0:00</span>
                         </div>
                     </div>
 
+                    {{-- Scrub slider (hidden but functional — drives time) --}}
+                    <input x-show="wsReady" type="range" min="0" :max="duration || 100" step="0.1"
+                        :value="currentTime"
+                        @input="scrubTo($event.target.value)"
+                        @mousedown="scrubbing = true"
+                        @mouseup="scrubbing = false"
+                        @touchstart="scrubbing = true"
+                        @touchend="scrubbing = false"
+                        class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-violet-500"
+                        :style="`background: linear-gradient(to right, #7c3aed 0%, #7c3aed ${duration ? (currentTime/duration)*100 : 0}%, rgba(255,255,255,0.1) ${duration ? (currentTime/duration)*100 : 0}%, rgba(255,255,255,0.1) 100%)`">
+
                     {{-- Controls row --}}
-                    <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-3" x-show="wsReady">
 
                         {{-- Skip back 10s --}}
-                        <button @click="skip(-10)" :disabled="!wsReady"
-                            class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-30 flex items-center justify-center transition flex-shrink-0"
+                        <button @click="skip(-10)"
+                            class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition flex-shrink-0"
                             title="Back 10s">
-                            <svg class="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
-                                <text x="7.5" y="14.5" font-size="5" fill="currentColor" font-family="sans-serif" font-weight="bold">10</text>
+                            <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.334 4z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z"/>
                             </svg>
                         </button>
 
                         {{-- Play / Pause --}}
-                        <button @click="togglePlay" :disabled="!wsReady"
-                            class="w-12 h-12 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full flex items-center justify-center shadow-lg shadow-violet-600/30 transition-all flex-shrink-0">
-                            <template x-if="wsLoading">
-                                <svg class="w-4 h-4 text-white animate-spin" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                                </svg>
-                            </template>
-                            <template x-if="!wsLoading && !playing">
+                        <button @click="togglePlay"
+                            class="w-12 h-12 bg-violet-600 hover:bg-violet-500 rounded-full flex items-center justify-center shadow-lg shadow-violet-600/30 transition-all flex-shrink-0">
+                            <template x-if="!playing">
                                 <svg class="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                             </template>
-                            <template x-if="!wsLoading && playing">
+                            <template x-if="playing">
                                 <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
                             </template>
                         </button>
 
                         {{-- Skip forward 10s --}}
-                        <button @click="skip(10)" :disabled="!wsReady"
-                            class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-30 flex items-center justify-center transition flex-shrink-0"
+                        <button @click="skip(10)"
+                            class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition flex-shrink-0"
                             title="Forward 10s">
-                            <svg class="w-4 h-4 text-gray-300" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/>
-                                <text x="7.5" y="14.5" font-size="5" fill="currentColor" font-family="sans-serif" font-weight="bold">10</text>
+                            <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z"/>
                             </svg>
                         </button>
 
                         {{-- Playback speed --}}
                         <div class="flex items-center gap-1 ml-1">
                             <template x-for="spd in [0.75, 1, 1.25, 1.5]" :key="spd">
-                                <button @click="setSpeed(spd)" :disabled="!wsReady"
-                                    class="text-xs px-2 py-1 rounded-md border transition disabled:opacity-30"
+                                <button @click="setSpeed(spd)"
+                                    class="text-xs px-2 py-1 rounded-md border transition"
                                     :class="playbackSpeed === spd
                                         ? 'bg-violet-600/30 border-violet-500/50 text-violet-300'
                                         : 'bg-white/5 border-white/10 text-gray-500 hover:text-gray-200 hover:bg-white/10'"
@@ -758,8 +827,6 @@
         </footer>
     </div>
 
-    <script src="https://unpkg.com/wavesurfer.js@7/dist/wavesurfer.min.js"></script>
-
     <script>
     function podcastApp() {
         return {
@@ -802,8 +869,7 @@
             historyOpen: false,
             historyLoading: false,
 
-            // WaveSurfer
-            ws: null,
+            // Player
             wsReady: false,
             wsLoading: false,
             playing: false,
@@ -930,8 +996,6 @@
                         this.audioUrl  = data.audio_url;
                         this.podcastId = data.podcast_id;
                         this.saved     = true;
-                        await this.$nextTick();
-                        this.initWaveSurfer(data.audio_url);
                     }
                 } catch (e) {
                     this.audioError = 'Network error. Please try again.';
@@ -1055,54 +1119,69 @@
                 this.previewAudio.onerror = () => { this.previewingId = null; };
             },
 
-            // ── WaveSurfer ──
-            initWaveSurfer(audioUrl) {
+            // ── Audio Player ──
+            initPlayer() {
+                const el = this.$refs.audioEl;
+                if (!el) return;
                 this.wsLoading = true;
-                this.wsReady = false;
-                this.ws = WaveSurfer.create({
-                    container: '#waveform',
-                    waveColor: 'rgba(124, 58, 237, 0.45)',
-                    progressColor: '#7c3aed',
-                    cursorColor: '#a78bfa',
-                    cursorWidth: 2,
-                    barWidth: 3,
-                    barGap: 2,
-                    barRadius: 10,
-                    height: 72,
-                    normalize: true,
-                    url: audioUrl,
-                });
-                this.ws.on('ready', () => { this.wsLoading = false; this.wsReady = true; this.duration = this.ws.getDuration(); });
-                this.ws.on('timeupdate', t => { if (!this.scrubbing) this.currentTime = t; });
-                this.ws.on('finish', () => { this.playing = false; });
-                this.ws.on('error', err => { console.error('WaveSurfer:', err); this.wsLoading = false; });
+                this.wsReady   = false;
+                this.playing   = false;
+                this.currentTime = 0;
+                this.duration    = 0;
+
+                el.src = this.audioUrl;
+                el.load();
+
+                el.onloadedmetadata = () => {
+                    this.duration  = el.duration;
+                    this.wsLoading = false;
+                    this.wsReady   = true;
+                };
+                el.ontimeupdate = () => {
+                    if (!this.scrubbing) this.currentTime = el.currentTime;
+                };
+                el.onended  = () => { this.playing = false; };
+                el.onerror  = () => { this.wsLoading = false; };
             },
 
             togglePlay() {
-                if (!this.ws || !this.wsReady) return;
-                this.ws.playPause();
-                this.playing = this.ws.isPlaying();
+                const el = this.$refs.audioEl;
+                if (!el || !this.wsReady) return;
+                if (this.playing) { el.pause(); this.playing = false; }
+                else { el.play(); this.playing = true; }
             },
 
             skip(seconds) {
-                if (!this.ws || !this.wsReady) return;
-                const next = Math.min(Math.max(this.currentTime + seconds, 0), this.duration);
-                this.ws.seekTo(next / this.duration);
+                const el = this.$refs.audioEl;
+                if (!el || !this.wsReady) return;
+                el.currentTime = Math.min(Math.max(el.currentTime + seconds, 0), this.duration);
             },
 
             scrubTo(value) {
-                if (!this.ws || !this.wsReady || !this.duration) return;
-                this.ws.seekTo(parseFloat(value) / this.duration);
+                const el = this.$refs.audioEl;
+                if (!el || !this.wsReady) return;
+                el.currentTime = parseFloat(value);
+                this.currentTime = el.currentTime;
+            },
+
+            scrubClick(event) {
+                const el = this.$refs.audioEl;
+                if (!el || !this.wsReady || !this.duration) return;
+                const rect = event.currentTarget.getBoundingClientRect();
+                const pct  = (event.clientX - rect.left) / rect.width;
+                el.currentTime = pct * this.duration;
             },
 
             setSpeed(speed) {
-                if (!this.ws) return;
+                const el = this.$refs.audioEl;
+                if (!el) return;
                 this.playbackSpeed = speed;
-                this.ws.setPlaybackRate(speed);
+                el.playbackRate = speed;
             },
 
             setVolume(val) {
-                if (this.ws) this.ws.setVolume(parseFloat(val));
+                const el = this.$refs.audioEl;
+                if (el) el.volume = parseFloat(val);
             },
 
             formatTime(s) {
@@ -1115,7 +1194,8 @@
             },
 
             resetAll() {
-                if (this.ws) { this.ws.destroy(); this.ws = null; }
+                const el = this.$refs.audioEl;
+                if (el) { el.pause(); el.src = ''; }
                 if (this.previewAudio) { this.previewAudio.pause(); this.previewAudio = null; }
                 this.images.forEach(img => URL.revokeObjectURL(img.preview));
                 Object.assign(this, {
@@ -1123,9 +1203,64 @@
                     scriptError: null, scriptLoading: false,
                     images: [], imageUrls: [], storedImageUrls: [], imageUrlInput: '', isDragging: false,
                     audioUrl: null, audioError: null, audioLoading: false, podcastId: null, saved: false,
-                    playing: false, wsReady: false, wsLoading: false, currentTime: 0, duration: 0, scrubbing: false, playbackSpeed: 1,
+                    wsReady: false, wsLoading: false, playing: false, currentTime: 0, duration: 0, scrubbing: false, playbackSpeed: 1,
                     previewingId: null,
                 });
+            },
+        };
+    }
+    function historyPlayer(item) {
+        return {
+            item,
+            loading: false,
+            ready: false,
+            playing: false,
+            currentTime: 0,
+            duration: 0,
+            speed: 1,
+
+            toggle() {
+                const el = this.$refs.hAudio;
+                if (!el) return;
+
+                if (!this.ready && !this.loading) {
+                    // First play — load audio
+                    this.loading = true;
+                    el.src = this.item.audio_url;
+                    el.load();
+                    el.onloadedmetadata = () => {
+                        this.duration = el.duration;
+                        this.loading  = false;
+                        this.ready    = true;
+                        el.play();
+                        this.playing = true;
+                    };
+                    el.ontimeupdate = () => { this.currentTime = el.currentTime; };
+                    el.onended      = () => { this.playing = false; };
+                    el.onerror      = () => { this.loading = false; };
+                    return;
+                }
+
+                if (this.playing) { el.pause(); this.playing = false; }
+                else              { el.play();  this.playing = true;  }
+            },
+
+            seek(event) {
+                const el = this.$refs.hAudio;
+                if (!el || !this.ready || !this.duration) return;
+                const rect = event.currentTarget.getBoundingClientRect();
+                el.currentTime = ((event.clientX - rect.left) / rect.width) * this.duration;
+            },
+
+            setSpeed(spd) {
+                const el = this.$refs.hAudio;
+                this.speed = spd;
+                if (el) el.playbackRate = spd;
+            },
+
+            fmt(s) {
+                if (!s || isNaN(s)) return '0:00';
+                return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
             },
         };
     }
